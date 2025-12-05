@@ -38,7 +38,7 @@ def extract_archives(input_dir: Path, processed_dir: Path, failed_dir: Path):
         # Find archives in current state of input_dir
         archives = []
         # Recursive glob to look into extracted subfolders too
-        for ext in ['*.zip', '*.tar', '*.tar.gz', '*.tgz', '*.tar.bz2', '*.tbz2', '*.tar.xz', '*.txz']:
+        for ext in ['*.zip', '*.tar', '*.tar.gz', '*.tgz', '*.tar.bz2', '*.tbz2', '*.tar.xz', '*.txz', '*.gz']:
             archives.extend(input_dir.rglob(ext))
         
         archives = list(set(archives))
