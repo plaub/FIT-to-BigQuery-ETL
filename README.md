@@ -7,6 +7,7 @@ A Python ETL pipeline for processing FIT files (from Wahoo, Garmin, Zwift) and u
 - **Hash-based duplicate detection**: SHA-256 hashing prevents duplicate processing
 - **Batch upload**: Efficient uploading in configurable batches
 - **Transactional processing**: Details first, then session data
+- **Recursive Archive Extraction**: Automatically scans and extracts `.zip`, `.tar`, and `.gz` archives (including nested ones)
 - **Automatic archiving**: Successfully processed files are moved to `processed/`
 - **Error handling**: Faulty files are moved to `failed/`
 - **Comprehensive logging**: Detailed logs in `logs/` directory
@@ -83,15 +84,15 @@ python -m src.etl_pipeline
 ```
 
 ### Workflow
-
-1. **Extract**: Scans `files/` directory for FIT files
-2. **Hash-Check**: Generates SHA-256 hash and checks against BigQuery
-3. **Transform**: Parses FIT files with `fitparse` and extracts data
-4. **Load**:
+1. **Pre-Process**: Recursively extracts any found archives (`.zip`, `.tar`, `.gz`, etc.) in `files/`
+2. **Extract**: Scans directory for FIT files (including extracted ones)
+3. **Hash-Check**: Generates SHA-256 hash and checks against BigQuery
+4. **Transform**: Parses FIT files with `fitparse` and extracts data
+5. **Load**:
    - Uploads details data in batches
    - Uploads session data
-5. **Archive**: Moves successfully processed files to `processed/`
-6. **Error Handling**: Moves faulty files to `failed/`
+6. **Archive**: Moves successfully processed files to `processed/`
+7. **Error Handling**: Moves faulty files to `failed/`
 
 ## Project Structure
 
@@ -127,6 +128,23 @@ Log level configurable via `.env` (DEBUG, INFO, WARNING, ERROR)
 - **Parsing Error**: File is moved to `failed/`
 - **BigQuery Error**: Transaction is aborted, file remains in `files/`
 - **Network Error**: Pipeline aborts, file can be processed again in the next run
+
+## Helper Tools
+
+### Parser Tester
+
+You can verify FIT files or entire archives without uploading to BigQuery:
+
+```powershell
+python test_parser.py files/my_activity.fit
+# OR
+python test_parser.py files/archive.zip
+```
+
+This tool supports:
+- Single `.fit` files
+- Archives (`.zip`, `.tar`, `.gz`, etc.) - recursively extracted
+- Directories (recursive scan)
 
 ## GPS Coordinates Conversion
 
