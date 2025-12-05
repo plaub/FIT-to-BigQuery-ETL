@@ -16,6 +16,7 @@ from src.config import (
 from src.bigquery_client import BigQueryClient
 from src.hash_manager import find_unprocessed_files
 from src.fit_parser import parse_fit_file
+from src.archive_extractor import extract_archives
 
 
 def setup_logging():
@@ -174,6 +175,12 @@ def run_etl_pipeline():
         logger.info("=" * 80)
         bq_client = initialize_bigquery(logger)
         
+        # Step 0: Pre-process archives
+        logger.info("=" * 80)
+        logger.info("PRE-PROCESS: Checking for archives...")
+        logger.info("=" * 80)
+        extract_archives(INPUT_DIR, PROCESSED_DIR, FAILED_DIR)
+
         # Step 1: EXTRACT - Find unprocessed files
         # (This queries the sessions table that was just created/verified above)
         logger.info("=" * 80)

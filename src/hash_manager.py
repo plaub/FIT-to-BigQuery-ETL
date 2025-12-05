@@ -96,8 +96,8 @@ def find_unprocessed_files(input_dir: Path, bigquery_client) -> List[tuple]:
     logger.info(f"Scanning for FIT files in {input_dir}")
     
     # Get all FIT files (use set to avoid duplicates on case-insensitive filesystems like Windows)
-    fit_files_lower = set(input_dir.glob("*.fit"))
-    fit_files_upper = set(input_dir.glob("*.FIT"))
+    fit_files_lower = set(input_dir.rglob("*.fit"))
+    fit_files_upper = set(input_dir.rglob("*.FIT"))
     fit_files = list(fit_files_lower | fit_files_upper)  # Union removes duplicates
     logger.info(f"Found {len(fit_files)} FIT files")
     
