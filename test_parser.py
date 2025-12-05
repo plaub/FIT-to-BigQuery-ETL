@@ -111,12 +111,114 @@ def test_fit_file(file_path: str):
         traceback.print_exc()
 
 
+import shutil
+import tempfile
+import atexit
+import gzip
+
+def cleanup_temp_dir(temp_dir):
+    """Cleanup temporary directory."""
+    if temp_dir and Path(temp_dir).exists():
+        shutil.rmtree(temp_dir)
+
+
+
+def process_path(path_str: str):
+    """Process a path (file, directory, or archive)."""
+    path = Path(path_str)
+    
+    if not path.exists():
+        print(f"❌ Path not found: {path}")
+        return
+
+    # Check if archive
+    suffixes = path.suffixes
+    is_archive = False
+    if any(s.lower() in ['.zip', '.tar', '.gz', '.tgz', '.bz2', '.xz'] for s in suffixes):
+        is_archive = True
+        
+    if is_archive:
+        print(f"📦 Detected archive: {path.name}")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            print(f"   Extracting to temporary directory...")
+            try:
+                shutil.unpack_archive(str(path), temp_dir)
+                # Process contents of temp dir
+                process_directory(Path(temp_dir))
+            except Exception as e:
+                print(f"❌ Failed to extract archive: {e}")
+                
+    elif path.is_dir():
+        print(f"📂 Processing directory: {path.name}")
+        process_directory(path)
+        
+    elif path.suffix.lower() == '.fit':
+        test_fit_file(path)
+        
+    else:
+        print(f"❌ Unsupported file type: {path.name}")
+
+def process_directory(directory: Path):
+    """Recursively find and process FIT files and nested archives in directory."""
+    
+    # 1. Look for and extract nested archives first
+    archive_extensions = {'.zip', '.tar', '.gz', '.tgz', '.bz2', '.xz'}
+    found_archives = []
+    # Use rglob to find all archives. Iterate copy to allow processing.
+    for path in directory.rglob("*"):
+        if path.is_file() and any(path.name.endswith(ext) for ext in archive_extensions):
+            found_archives.append(path)
+            
+    for archive_path in found_archives:
+        try:
+            # Create a specific directory for this archive's contents to avoid collisions
+            extract_dir = archive_path.parent / f"{archive_path.stem}_extracted"
+            
+            # Skip if already extracted (simple heuristic if dir exists)
+            if not extract_dir.exists():
+                extract_dir.mkdir(exist_ok=True)
+                print(f"📦 Extracting nested archive: {archive_path.name}")
+                
+                if archive_path.suffix.lower() == '.gz' and not archive_path.name.lower().endswith('.tar.gz'):
+                    # Handle single compressed file .gz
+                    output_file = extract_dir / archive_path.stem
+                    with gzip.open(archive_path, 'rb') as f_in:
+                        with open(output_file, 'wb') as f_out:
+                            shutil.copyfileobj(f_in, f_out)
+                else:
+                    shutil.unpack_archive(str(archive_path), str(extract_dir))
+                
+                # Recurse into the new directory to handle triple nesting, etc.
+                process_directory(extract_dir)
+        except Exception as e:
+            # Don't fail the whole run, just warn
+            print(f"⚠️ Failed to extract nested archive {archive_path.name}: {e}")
+
+    # 2. Find and process FIT files
+    # rglob again because new files might have appeared from extraction
+    fit_files = list(directory.rglob("*.fit")) + list(directory.rglob("*.FIT"))
+    fit_files = list(set(fit_files)) # dedupe
+    
+    if not fit_files:
+        # Check if we at least found archives, otherwise warn
+        if not found_archives:
+           print(f"⚠️ No FIT files or archives found in {directory.name}")
+        return
+        
+    print(f"Found {len(fit_files)} FIT files in {directory.name} (including extracted)...")
+    
+    for fit_file in fit_files:
+        test_fit_file(fit_file)
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python test_parser.py <path_to_fit_file>")
+        print("Usage: python test_parser.py <path_to_fit_file_or_archive_or_directory>")
         print()
-        print("Example:")
-        print("  python test_parser.py files/2024-05-09-095135-ELEMNT BOLT 3FFA-146-0.fit")
+        print("Examples:")
+        print("  python test_parser.py files/my_run.fit")
+        print("  python test_parser.py files/my_archive.zip")
+        print("  python test_parser.py files/")
         sys.exit(1)
     
-    test_fit_file(sys.argv[1])
+    process_path(sys.argv[1])
