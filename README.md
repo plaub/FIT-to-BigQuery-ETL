@@ -1,44 +1,46 @@
 # FIT to BigQuery ETL Pipeline
 
-A Python ETL pipeline for processing FIT files (from Wahoo, Garmin, Zwift) and uploading them to Google BigQuery.
+Ein Python-ETL-Pipeline zum Verarbeiten von FIT-Dateien (von Wahoo, Garmin, Zwift) und Hochladen zu Google BigQuery.
 
 ## Features
 
-- **Hash-based duplicate detection**: SHA-256 hashing prevents duplicate processing
-- **Batch upload**: Efficient uploading in configurable batches
-- **Transactional processing**: Details first, then session data
-- **Recursive Archive Extraction**: Automatically scans and extracts `.zip`, `.tar`, and `.gz` archives (including nested ones)
-- **Automatic archiving**: Successfully processed files are moved to `processed/`
-- **Error handling**: Faulty files are moved to `failed/`
-- **Comprehensive logging**: Detailed logs in `logs/` directory
-- **BigQuery Optimization**: Partitioning by Timestamp, Clustering by Manufacturer/Sport
+- **Hash-basierte Duplikaterkennung**: SHA-256 Hashing verhindert doppelte Verarbeitung
+- **Batch-Upload**: Effizientes Hochladen in konfigurierbaren Batches (Standard: 1000 Zeilen)
+- **Transaktionale Verarbeitung**: Details zuerst, dann Session-Daten mit Rollback bei Fehlern
+- **Automatisches Archivieren**: Erfolgreich verarbeitete Dateien → `processed/`
+- **Fehlerbehandlung**: Fehlerhafte Dateien → `failed/` mit detaillierten Logs
+- **Umfassendes Logging**: Datei + Console Output mit konfigurierbarem Log-Level
+- **BigQuery Optimierung**: Partitionierung nach Timestamp, Clustering nach Manufacturer/Sport
+- **GPS-Konvertierung**: Automatische Umrechnung von Semicircles zu Dezimalgrad
+- **Datetime-Serialisierung**: Sichere JSON-Konvertierung für BigQuery Upload
+- **Windows-kompatibel**: UTF-8 Encoding, keine Unicode-Symbole in Logs
 
-## Prerequisites
+## Voraussetzungen
 
 - Python 3.8+
-- Google Cloud Service Account with BigQuery permissions
-- FIT files from fitness devices
+- Google Cloud Service Account mit BigQuery-Berechtigungen
+- FIT-Dateien von Fitness-Geräten
 
 ## Installation
 
-1. **Clone or download repository**
+1. **Repository klonen oder herunterladen**
 
-2. **Create virtual environment (recommended)**
+2. **Virtuelle Umgebung erstellen (empfohlen)**
 
 ```powershell
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
-3. **Install dependencies**
+3. **Dependencies installieren**
 
 ```powershell
-pip install -r requirements.txt
+pip install --user -r requirements.txt
 ```
 
-4. **Set up configuration**
+4. **Konfiguration einrichten**
 
-Create a `.env` file in the project directory (template: `.env.example`):
+Erstellen Sie eine `.env` Datei im Projektverzeichnis (Vorlage: `.env.example`):
 
 ```env
 GOOGLE_APPLICATION_CREDENTIALS=path/to/your-service-account-key.json
@@ -54,173 +56,544 @@ LOG_LEVEL=INFO
 
 ## BigQuery Schema
 
-### Sessions Table
+### Sessions Tabelle
 
-Stores summaries of training sessions:
+Speichert Zusammenfassungen der Trainingseinheiten:
 
-- Metadata (File Hash, Filename, Session ID)
-- Time information (Start, Duration)
-- Device info (Manufacturer, Product, Serial Number)
-- Metrics (Distance, Speed, Cadence, Heart Rate, Power)
-- Altitude data (Min/Avg/Max Altitude, Ascent/Descent)
-- Calories and Training metrics (TSS, Intensity Factor)
+- **Metadaten**: `file_hash` (Primary Key), `filename`, `session_id` (UUID)
+- **Zeitinformationen**: `start_time`, `timestamp`, `total_timer_time`, `total_elapsed_time`
+- **Geräteinfo**: `manufacturer`, `product`, `serial_number`
+- **Metriken**: `total_distance`, `avg_speed`, `max_speed`, `avg_cadence`, `max_cadence`
+- **Herzfrequenz**: `min_heart_rate`, `avg_heart_rate`, `max_heart_rate`
+- **Leistung**: `avg_power`, `max_power`, `normalized_power`, `threshold_power`, `total_work`
+- **Höhendaten**: `min_altitude`, `avg_altitude`, `max_altitude`, `total_ascent`, `total_descent`
+- **Steigung**: `avg_grade`, `max_pos_grade`, `max_neg_grade`
+- **Kalorien**: `total_calories`
+- **Training**: `training_stress_score`, `intensity_factor`, `sport`, `sub_sport`, `num_laps`
 
-### Details Table
+**Partitionierung**: Täglich nach `start_time`  
+**Clustering**: Nach `manufacturer`, `sport`
 
-Stores time-series data points (second by second):
+### Details Tabelle
 
-- Session association (Session ID, File Hash)
-- GPS coordinates (Latitude/Longitude in decimal degrees)
-- Vitals (Heart Rate, Cadence, Power)
-- Environment data (Temperature, Altitude, Grade)
-- Movement data (Speed, Distance)
+Speichert Zeitreihen-Datenpunkte (Sekunde für Sekunde):
 
-## Usage
+- **Zuordnung**: `session_id` (Foreign Key), `file_hash`, `record_id` (eindeutig)
+- **Zeit**: `timestamp`
+- **GPS**: `position_lat`, `position_long` (Dezimalgrad), `gps_accuracy`
+- **Höhe**: `altitude`, `enhanced_altitude`, `grade`
+- **Bewegung**: `distance` (kumulativ), `speed`, `enhanced_speed`
+- **Vitalwerte**: `heart_rate`, `cadence`, `power`
+- **Umgebung**: `temperature`, `calories`, `battery_soc`
 
-### Run Pipeline
+**Partitionierung**: Täglich nach `timestamp`  
+**Clustering**: Nach `session_id`, `file_hash`
+
+## Verwendung
+
+### Setup ausführen (Optional)
+
+Interaktive Konfiguration mit Setup-Wizard:
 
 ```powershell
-python -m src.etl_pipeline
+python setup.py
 ```
 
-### Workflow
-1. **Pre-Process**: Recursively extracts any found archives (`.zip`, `.tar`, `.gz`, etc.) in `files/`
-2. **Extract**: Scans directory for FIT files (including extracted ones)
-3. **Hash-Check**: Generates SHA-256 hash and checks against BigQuery
-4. **Transform**: Parses FIT files with `fitparse` and extracts data
-5. **Load**:
-   - Uploads details data in batches
-   - Uploads session data
-6. **Archive**: Moves successfully processed files to `processed/`
-7. **Error Handling**: Moves faulty files to `failed/`
+### BigQuery-Verbindung testen
 
-## Project Structure
+```powershell
+python test_bigquery.py
+```
+
+Prüft:
+
+- ✅ Konfiguration gültig
+- ✅ Service Account Authentifizierung
+- ✅ Dataset erreichbar
+- ✅ Query-Fähigkeit
+
+### FIT-Parser testen (ohne BigQuery)
+
+```powershell
+python test_parser.py "files\2024-05-09-095135-ELEMNT BOLT 3FFA-146-0.fit"
+```
+
+Zeigt:
+
+- Session-Informationen (Sport, Dauer, Metriken)
+- Anzahl Records
+- GPS-Koordinaten
+- Herzfrequenz, Leistung, etc.
+
+### ETL Pipeline ausführen
+
+```powershell
+python run_etl.py
+```
+
+### Ablauf
+
+1. **SETUP**: Initialisiert BigQuery
+
+   - Erstellt Dataset (falls nicht vorhanden)
+   - Erstellt Tables mit Schema (falls nicht vorhanden)
+   - Verifiziert Partitionierung und Clustering
+
+2. **EXTRACT**: Findet unverarbeitete Dateien
+
+   - Scannt `files/` nach `*.fit` und `*.FIT` (ohne Duplikate)
+   - Generiert SHA-256 Hash pro Datei
+   - Prüft gegen BigQuery `sessions.file_hash`
+   - Gibt Liste unverarbeiteter Dateien zurück
+
+3. **TRANSFORM**: Parsed FIT-Dateien
+
+   - Extrahiert Session-Daten mit `garmin-fit-sdk`
+   - Extrahiert Record-Daten (Zeitreihen)
+   - Konvertiert GPS: Semicircles → Dezimalgrad
+   - Konvertiert Datetime → ISO-Format Strings
+   - Generiert eindeutige `session_id` (UUID)
+
+4. **LOAD**: Lädt zu BigQuery hoch
+
+   - **Details zuerst**: Batch-Upload (1000 Zeilen)
+   - **Sessions danach**: Single-Row Upload
+   - Bei Fehler: Transaction Rollback
+
+5. **ARCHIVE**: Verschiebt Dateien
+
+   - Erfolg → `processed/`
+   - Fehler → `failed/`
+   - Hash bleibt unverändert (wichtig!)
+
+6. **SUMMARY**: Statistiken
+   - Anzahl erfolgreich verarbeitet
+   - Anzahl fehlgeschlagen
+   - Gesamt-Anzahl
+
+## Projektstruktur
 
 ```
 python-fit/
 ├── src/
 │   ├── __init__.py
-│   ├── config.py              # Configuration management
-│   ├── hash_manager.py        # Duplicate detection
-│   ├── fit_parser.py          # FIT file parser
-│   ├── bigquery_client.py     # BigQuery operations
-│   └── etl_pipeline.py        # Main pipeline
-├── files/                     # Input: FIT files
-├── processed/                 # Successfully processed files
-├── failed/                    # Failed files
-├── logs/                      # Log files
-├── requirements.txt           # Python dependencies
-├── .env.example              # Configuration template
-└── README.md                 # This file
+│   ├── config.py              # Konfigurationsmanagement + BigQuery Schemas
+│   ├── hash_manager.py        # SHA-256 Duplikaterkennung
+│   ├── fit_parser.py          # FIT-Datei Parser mit GPS-Konvertierung
+│   ├── bigquery_client.py     # BigQuery Operations mit DateTime-Serialisierung
+│   └── etl_pipeline.py        # Haupt-Pipeline Orchestrierung
+├── files/                     # Input: FIT-Dateien
+├── processed/                 # Erfolgreich verarbeitete Dateien
+├── failed/                    # Fehlgeschlagene Dateien
+├── logs/                      # Log-Dateien (UTF-8 encoded)
+├── run_etl.py                 # Pipeline Runner
+├── setup.py                   # Setup-Wizard
+├── test_parser.py             # FIT Parser Test (ohne BigQuery)
+├── test_bigquery.py           # BigQuery Connection Test
+├── requirements.txt           # Python Dependencies
+├── .env.example              # Konfigurationsvorlage
+├── .gitignore                # Git Ignore Patterns
+├── README.md                 # Diese Datei
+└── QUICKSTART.md             # Schnellstart-Anleitung
 ```
 
 ## Logging
 
-Logs are stored in:
+Logs werden gespeichert in:
 
-- **File**: `logs/etl_YYYYMMDD_HHMMSS.log`
-- **Console**: Simultaneous output to screen
+- **Datei**: `logs/etl_YYYYMMDD_HHMMSS.log` (UTF-8 encoded)
+- **Console**: Gleichzeitige Ausgabe auf Bildschirm
 
-Log level configurable via `.env` (DEBUG, INFO, WARNING, ERROR)
-
-## Error Handling
-
-- **Parsing Error**: File is moved to `failed/`
-- **BigQuery Error**: Transaction is aborted, file remains in `files/`
-- **Network Error**: Pipeline aborts, file can be processed again in the next run
-
-## Helper Tools
-
-### Parser Tester
-
-You can verify FIT files or entire archives without uploading to BigQuery:
-
-```powershell
-python test_parser.py files/my_activity.fit
-# OR
-python test_parser.py files/archive.zip
-```
-
-This tool supports:
-- Single `.fit` files
-- Archives (`.zip`, `.tar`, `.gz`, etc.) - recursively extracted
-- Directories (recursive scan)
-
-## GPS Coordinates Conversion
-
-FIT files store GPS coordinates in Semicircles (Integer).
-The pipeline automatically converts them to Decimal Degrees:
+**Log-Format**:
 
 ```
-Degrees = Semicircles × (180 / 2^31)
+%(asctime)s - %(name)s - %(levelname)s - %(message)s
 ```
 
-## Example Output
+**Log-Level** konfigurierbar über `.env`:
+
+- `DEBUG`: Sehr detailliert (Hash-Checks, einzelne Records)
+- `INFO`: Standard (Processing-Status, Uploads)
+- `WARNING`: Warnungen (fehlende Dateien, leere Records)
+- `ERROR`: Fehler (Parsing-Fehler, BigQuery-Fehler)
+
+## Fehlerbehandlung
+
+### Parsing-Fehler
+
+- **Ursache**: Korrupte FIT-Datei, nicht unterstütztes Format
+- **Aktion**: Datei → `failed/`
+- **Log**: Stack Trace mit Fehlerdetails
+- **Lösung**: Datei manuell prüfen, ggf. reparieren
+
+### BigQuery-Fehler
+
+- **Ursache**: Netzwerkfehler, Authentication, Quota überschritten
+- **Aktion**: Transaction Rollback, Datei bleibt in `files/`
+- **Log**: BigQuery API Error Details
+- **Lösung**: Beim nächsten Lauf wird erneut versucht
+
+### Datetime-Serialisierung
+
+- **Ursache**: `datetime` Objekte nicht JSON-serialisierbar
+- **Lösung**: Automatische Konvertierung zu ISO-Format
+- **Funktion**: `serialize_datetime()` in `bigquery_client.py`
+
+### Duplikat-Dateien
+
+- **Ursache**: Windows case-insensitive Filesystem
+- **Lösung**: Set-basierte Deduplizierung in `find_unprocessed_files()`
+- **Verhalten**: Jede Datei wird nur einmal verarbeitet
+
+### Fehlende Dateien
+
+- **Ursache**: Datei wurde bereits verschoben
+- **Lösung**: Existence-Check vor Verarbeitung
+- **Log**: Warning statt Error
+
+## GPS-Koordinaten Konvertierung
+
+FIT-Dateien speichern GPS-Koordinaten in **Semicircles** (Integer-Format).
+
+Die Pipeline konvertiert automatisch zu **Dezimalgrad**:
+
+```python
+def semicircles_to_degrees(semicircles: int) -> float:
+    """Konvertiert Semicircles zu Dezimalgrad"""
+    return semicircles * (180.0 / 2**31)
+
+# Beispiel:
+# Semicircles: 591621683
+# Dezimalgrad: 49.326624507
+```
+
+**Warum Semicircles?**
+
+- 2³¹ Semicircles = 180° (halber Kreis)
+- Integer-Speicherung = präzise & kompakt
+- Standard in FIT-Format
+
+## Beispiel-Output
 
 ```
 ================================================================================
 FIT to BigQuery ETL Pipeline Started
 ================================================================================
 INFO - Validating configuration...
+================================================================================
+SETUP: Initializing BigQuery...
+================================================================================
 INFO - Initializing BigQuery client...
+INFO - Initialized BigQuery client for fit-analyze-480219.fitness_data
+INFO - Verifying dataset exists...
+INFO - Dataset fitness_data exists
 INFO - Setting up sessions table...
+INFO - Table sessions exists
 INFO - Setting up details table...
-INFO - BigQuery setup complete
+INFO - Table details exists
+INFO - [OK] BigQuery setup complete - dataset and tables ready
 ================================================================================
 EXTRACT: Finding unprocessed files...
 ================================================================================
 INFO - Scanning for FIT files in files
-INFO - Found 50 FIT files
-INFO - Found 5 unprocessed files
+INFO - Found 67 FIT files
+INFO - Found 262 previously processed files in BigQuery
+INFO - New file: 2024-08-24-100540-ELEMNT_BOLT_3FFA-159-0.fit
+INFO - New file: zwift-activity-1729985326102888448.fit
+INFO - Found 2 unprocessed files
 ================================================================================
 TRANSFORM & LOAD: Processing files...
 ================================================================================
 --------------------------------------------------------------------------------
-Processing: 2024-05-09-095135-ELEMNT BOLT 3FFA-146-0.fit
+Processing: 2024-08-24-100540-ELEMNT_BOLT_3FFA-159-0.fit
 Hash: a3b2c1d4e5f6...
 INFO - Parsing FIT file...
-INFO - Extracted session and 15 records
+INFO - Extracted session and 8932 records from file
 INFO - Uploading to BigQuery...
-INFO - Successfully inserted 1542 rows into details
+INFO - Uploading 8932 records to details
+INFO - Successfully inserted 8932 rows into details
+INFO - Uploading session to sessions
 INFO - Successfully inserted 1 rows into sessions
-✓ Successfully processed 2024-05-09-095135-ELEMNT BOLT 3FFA-146-0.fit
+INFO - [OK] Successfully processed 2024-08-24-100540-ELEMNT_BOLT_3FFA-159-0.fit
+INFO - Moved file to processed/
+--------------------------------------------------------------------------------
+Processing: zwift-activity-1729985326102888448.fit
+Hash: b4c3d2e1f0a9...
+INFO - Parsing FIT file...
+INFO - Extracted session and 3621 records from file
+INFO - Uploading to BigQuery...
+INFO - Uploading 3621 records to details
+INFO - Successfully inserted 3621 rows into details
+INFO - Uploading session to sessions
+INFO - Successfully inserted 1 rows into sessions
+INFO - [OK] Successfully processed zwift-activity-1729985326102888448.fit
 INFO - Moved file to processed/
 ================================================================================
 ETL Pipeline Complete
 ================================================================================
-Successfully processed: 5
+Successfully processed: 2
 Failed: 0
-Total: 5
+Total: 2
 ```
 
-## Performance Optimization
+## Performance-Optimierung
 
-- **Batch Upload**: Default 1000 rows per batch (configurable)
-- **Partitioning**: By Timestamp for fast time-range queries
-- **Clustering**: By Manufacturer and Sport for optimized filtering
-- **Streaming Insert**: For real-time data availability
+- **Batch-Upload**: Standard 1000 Zeilen pro Batch (konfigurierbar via `BATCH_SIZE`)
+- **Partitionierung**: Nach Timestamp für schnelle Zeitbereichs-Abfragen
+  - Sessions: Täglich nach `start_time`
+  - Details: Täglich nach `timestamp`
+- **Clustering**: Nach Manufacturer und Sport für optimierte Filterung
+  - Sessions: `manufacturer`, `sport`
+  - Details: `session_id`, `file_hash`
+- **Streaming-Insert**: Für sofortige Datenverfügbarkeit in BigQuery
+- **DateTime-Serialisierung**: Automatische ISO-Format Konvertierung
+- **Set-basierte Deduplizierung**: Keine doppelten Dateien auf Windows
+- **Existence-Checks**: Vermeidet FileNotFoundError bei verschobenen Dateien
+
+## Beispiel-Abfragen (BigQuery)
+
+### Alle Sessions anzeigen
+
+```sql
+SELECT
+  session_id,
+  filename,
+  start_time,
+  sport,
+  total_distance / 1000 AS distance_km,
+  total_timer_time / 3600 AS duration_hours,
+  avg_heart_rate,
+  avg_power,
+  total_calories
+FROM `your-project.fitness_data.sessions`
+ORDER BY start_time DESC
+LIMIT 20
+```
+
+### Session mit Details kombinieren
+
+```sql
+SELECT
+  s.filename,
+  s.start_time,
+  s.sport,
+  s.manufacturer,
+  COUNT(d.record_id) AS total_records,
+  AVG(d.heart_rate) AS avg_hr,
+  MAX(d.power) AS max_power,
+  MAX(d.distance) AS final_distance
+FROM `your-project.fitness_data.sessions` s
+LEFT JOIN `your-project.fitness_data.details` d
+  ON s.session_id = d.session_id
+WHERE s.start_time >= '2024-01-01'
+GROUP BY s.filename, s.start_time, s.sport, s.manufacturer
+ORDER BY s.start_time DESC
+```
+
+### GPS-Track einer Session
+
+```sql
+SELECT
+  timestamp,
+  position_lat,
+  position_long,
+  enhanced_altitude AS altitude,
+  heart_rate,
+  power,
+  enhanced_speed AS speed,
+  distance
+FROM `your-project.fitness_data.details`
+WHERE session_id = 'YOUR-SESSION-ID'
+  AND position_lat IS NOT NULL
+  AND position_long IS NOT NULL
+ORDER BY timestamp
+```
+
+### Leistungsanalyse nach Hersteller
+
+```sql
+SELECT
+  manufacturer,
+  COUNT(*) AS total_activities,
+  SUM(total_distance) / 1000 AS total_km,
+  AVG(avg_power) AS avg_power,
+  AVG(avg_heart_rate) AS avg_hr,
+  SUM(total_calories) AS total_calories
+FROM `your-project.fitness_data.sessions`
+WHERE sport = 'cycling'
+GROUP BY manufacturer
+ORDER BY total_activities DESC
+```
 
 ## Troubleshooting
 
 ### "Import could not be resolved"
 
+Dependencies müssen installiert werden:
+
 ```powershell
-pip install -r requirements.txt
+pip install --user -r requirements.txt
 ```
 
 ### "GOOGLE_APPLICATION_CREDENTIALS not set"
 
-Check your `.env` file and ensure the path to the Service Account Key is correct.
+Prüfen Sie Ihre `.env` Datei:
+
+- Pfad zum Service Account Key korrekt?
+- Datei existiert an diesem Ort?
+- Umgebungsvariable gesetzt?
+
+Testen Sie mit:
+
+```powershell
+python test_bigquery.py
+```
 
 ### "Not found: Table"
 
-Tables are created automatically on the first run. Ensure your Service Account has permission to create tables.
+Tabellen werden automatisch beim ersten Lauf erstellt.
 
-## License
+- Service Account benötigt BigQuery Admin oder Editor Rolle
+- Dataset-Name in `.env` korrekt?
+- Project-ID korrekt?
 
-Private Project
+### "Object of type datetime is not JSON serializable"
 
-## Author
+**Behoben!** Die Pipeline konvertiert automatisch `datetime` zu ISO-Format Strings.
 
-Pierre
+Falls der Fehler trotzdem auftritt:
 
+- Prüfen Sie `bigquery_client.py` → `serialize_datetime()` Funktion
+- Neueste Version des Codes?
+
+### "charmap codec can't encode character"
+
+**Behoben!** Logs verwenden jetzt UTF-8 encoding.
+
+Falls auf Windows Probleme auftreten:
+
+- Log-Datei mit UTF-8 Editor öffnen (VS Code, Notepad++)
+- Keine Unicode-Symbole mehr in Logs (`[OK]` statt `✓`)
+
+### Duplikate werden verarbeitet
+
+**Behoben!** Set-basierte Deduplizierung verhindert doppelte Verarbeitung.
+
+Falls immer noch Probleme:
+
+- Prüfen Sie `hash_manager.py` → `find_unprocessed_files()`
+- Beide glob-Patterns in einem Set vereint?
+
+### "File not found" für bereits verschobene Dateien
+
+**Behoben!** Existence-Checks vor Verarbeitung und beim Verschieben.
+
+Falls der Fehler auftritt:
+
+- Datei manuell aus `failed/` oder `processed/` nach `files/` zurückverschieben
+- Pipeline erneut ausführen
+
+### Keine unverarbeiteten Dateien gefunden
+
+Mögliche Ursachen:
+
+- Alle Dateien bereits in BigQuery (Hash-Check)
+- Dateien bereits in `processed/` verschoben
+- Keine FIT-Dateien in `files/` Verzeichnis
+
+Prüfen:
+
+```powershell
+# Dateien in files/ zählen
+Get-ChildItem files\*.fit | Measure-Object
+
+# BigQuery abfragen
+python test_bigquery.py
+```
+
+### BigQuery Quota überschritten
+
+Bei vielen Dateien kann das Streaming-Insert Quota erreicht werden.
+
+Lösung:
+
+- `BATCH_SIZE` in `.env` erhöhen (z.B. 5000)
+- Oder: Warten (Quota regeneriert sich)
+- Oder: Batch-Insert statt Streaming-Insert verwenden
+
+## Technische Details
+
+### Implementierte Anforderungen
+
+✅ **Extract (Hash-basierte Duplikaterkennung)**
+
+- SHA-256 Hash-Generierung für jede Datei
+- BigQuery-Abfrage gegen `sessions.file_hash`
+- Set-basierte Deduplizierung (Windows-kompatibel)
+- Existence-Checks vor Verarbeitung
+
+✅ **Transform (FIT-Parsing & Strukturierung)**
+
+- `garmin-fit-sdk` Library für FIT-Datei Parsing (offizielles Garmin SDK)
+- Session-Daten Extraktion (Zusammenfassungs-Metriken)
+- Record-Daten Extraktion (Sekunden-genaue Zeitreihen)
+- GPS-Konvertierung: Semicircles → Dezimalgrad
+- DateTime-Serialisierung: `datetime` → ISO-Format
+- UUID-Generierung für `session_id`
+- Null-Value Handling
+
+✅ **Load (BigQuery Batch-Upload)**
+
+- Transaktionale Logik: Details zuerst, dann Sessions
+- Batch-Upload (konfigurierbar, Standard 1000)
+- Streaming-Insert für sofortige Verfügbarkeit
+- Error-Handling mit Rollback
+- Partitionierung und Clustering
+
+✅ **Fehlerbehandlung**
+
+- Try-Catch auf allen Ebenen
+- Detailliertes Logging (UTF-8 encoded)
+- Failed-Files → `failed/`
+- Success-Files → `processed/`
+- Hash bleibt unverändert
+
+✅ **Aufräumarbeiten**
+
+- Automatisches Verschieben nach Verarbeitung
+- Hash-Preservation (wichtig für Deduplizierung)
+- Name-Collision Handling (Timestamp-Suffix)
+- Existence-Checks vor dem Verschieben
+
+### Code-Architektur
+
+**Modular & SOLID-Prinzipien:**
+
+- `config.py`: Single Responsibility - Konfiguration
+- `hash_manager.py`: Single Responsibility - Duplikaterkennung
+- `fit_parser.py`: Single Responsibility - FIT-Parsing
+- `bigquery_client.py`: Single Responsibility - BigQuery Ops
+- `etl_pipeline.py`: Orchestrierung aller Module
+
+**Error-Resilient:**
+
+- Existence-Checks auf 3 Ebenen
+- Set-basierte Deduplizierung
+- DateTime-Serialisierung
+- UTF-8 Encoding
+- Rollback bei BigQuery-Fehlern
+
+**Production-Ready:**
+
+- Umfassendes Logging
+- Konfigurierbar via `.env`
+- Helper-Scripts (setup, test_parser, test_bigquery)
+- Dokumentation (README, QUICKSTART, Docstrings)
+
+## Lizenz
+
+Privates Projekt
+
+## Autor
+
+Pierre (plaub)
