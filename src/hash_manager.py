@@ -40,76 +40,78 @@ def generate_file_hash(file_path: Path) -> str:
 
 def get_processed_hashes(bigquery_client) -> Set[str]:
     """
-    Query BigQuery to get all processed file hashes.
-    
-    Note: This function is called AFTER initialize_bigquery() ensures tables exist.
-    The table should always exist at this point.
-    
-    Args:
-        bigquery_client: BigQuery client instance
-        
-    Returns:
-        Set of file hashes already in BigQuery
+    Query BigQuery to get all processed file hashes from all target tables.
     """
-    from src.config import BIGQUERY_DATASET, SESSIONS_TABLE
+    from src.config import BIGQUERY_DATASET, SESSIONS_TABLE, METRICS_TABLE
     
-    query = f"""
-        SELECT file_hash
-        FROM `{bigquery_client.project}.{BIGQUERY_DATASET}.{SESSIONS_TABLE}`
-    """
+    hashes = set()
     
+    # Check sessions table
     try:
-        query_job = bigquery_client.query(query)
+        query_sessions = f"""
+            SELECT DISTINCT file_hash
+            FROM `{bigquery_client.project}.{BIGQUERY_DATASET}.{SESSIONS_TABLE}`
+        """
+        query_job = bigquery_client.query(query_sessions)
         results = query_job.result()
-        
-        hashes = {row.file_hash for row in results}
-        
-        if len(hashes) == 0:
-            logger.info("No previously processed files found in BigQuery (first run or empty table)")
-        else:
-            logger.info(f"Found {len(hashes)} previously processed files in BigQuery")
-        
-        return hashes
-    
+        hashes.update({row.file_hash for row in results})
     except Exception as e:
-        # If table doesn't exist (shouldn't happen after initialize_bigquery)
-        if "Not found: Table" in str(e) or "Not found: Dataset" in str(e):
-            logger.warning(f"Sessions table not found - tables should have been created by initialize_bigquery()")
-            logger.warning(f"Assuming first run, treating all files as new")
-            return set()
-        else:
-            logger.error(f"Error querying processed hashes: {e}")
-            raise
+        if "Not found: Table" not in str(e):
+            logger.error(f"Error querying sessions hashes: {e}")
+            
+    # Check metrics table
+    try:
+        query_metrics = f"""
+            SELECT DISTINCT file_hash
+            FROM `{bigquery_client.project}.{BIGQUERY_DATASET}.{METRICS_TABLE}`
+        """
+        query_job = bigquery_client.query(query_metrics)
+        results = query_job.result()
+        hashes.update({row.file_hash for row in results})
+    except Exception as e:
+        if "Not found: Table" not in str(e):
+            logger.error(f"Error querying metrics hashes: {e}")
+            
+    if len(hashes) == 0:
+        logger.info("No previously processed files found in BigQuery")
+    else:
+        logger.info(f"Found {len(hashes)} previously processed files in BigQuery")
+        
+    return hashes
 
 
 def find_unprocessed_files(input_dir: Path, bigquery_client) -> List[tuple]:
     """
-    Find all unprocessed FIT files in input directory.
+    Find all unprocessed FIT and CSV files in input directory.
     
     Args:
-        input_dir: Directory containing FIT files
+        input_dir: Directory containing files
         bigquery_client: BigQuery client instance
         
     Returns:
         List of tuples (file_path, file_hash) for unprocessed files
     """
-    logger.info(f"Scanning for FIT files in {input_dir}")
+    logger.info(f"Scanning for files in {input_dir}")
     
-    # Get all FIT files (use set to avoid duplicates on case-insensitive filesystems like Windows)
-    fit_files_lower = set(input_dir.rglob("*.fit"))
-    fit_files_upper = set(input_dir.rglob("*.FIT"))
-    fit_files = list(fit_files_lower | fit_files_upper)  # Union removes duplicates
-    logger.info(f"Found {len(fit_files)} FIT files")
+    # Get all FIT and CSV files
+    extensions = ["*.fit", "*.FIT", "*.csv", "*.CSV"]
+    all_files = []
+    for ext in extensions:
+        all_files.extend(input_dir.rglob(ext))
+    
+    # Remove duplicates (case-insensitive)
+    file_map = {f.resolve(): f for f in all_files}
+    files = list(file_map.values())
+    
+    logger.info(f"Found {len(files)} candidate files")
     
     # Get already processed hashes
     processed_hashes = get_processed_hashes(bigquery_client)
     
     # Check each file
     unprocessed = []
-    for file_path in fit_files:
-        # First check if file actually exists (it might have been moved)
+    for file_path in files:
         if not file_path.exists():
-            logger.warning(f"File listed but not found (may have been moved): {file_path.name}")
             continue
             
         try:

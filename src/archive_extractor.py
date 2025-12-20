@@ -72,10 +72,30 @@ def extract_archives(input_dir: Path, processed_dir: Path, failed_dir: Path):
                     with gzip.open(archive_path, 'rb') as f_in:
                         with open(output_file, 'wb') as f_out:
                             shutil.copyfileobj(f_in, f_out)
+                    
+                    # If the extracted file is 'metrics.csv', rename it to the archive name
+                    if output_file.name == "metrics.csv":
+                         new_name = output_file.parent / f"{archive_path.stem}.csv"
+                         output_file.rename(new_name)
+                         logger.info(f"Renamed {output_file.name} to {new_name.name}")
                             
                 else:
                     # Use shutil for standard archives (zip, tar, tar.gz, etc)
+                    # Extract directly into path as requested
                     shutil.unpack_archive(str(archive_path), str(extract_path))
+                    
+                    # Rename 'metrics.csv' to the archive name if it exists
+                    # This helps identify the source of the data more easily
+                    metrics_file = extract_path / "metrics.csv"
+                    if metrics_file.exists():
+                        new_name = extract_path / f"{archive_path.stem}.csv"
+                        # Check if destination exists to avoid errors
+                        if new_name.exists():
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            new_name = extract_path / f"{archive_path.stem}_{timestamp}.csv"
+                        
+                        metrics_file.rename(new_name)
+                        logger.info(f"Renamed {metrics_file.name} to {new_name.name}")
                 
                 # Move to processed
                 destination = processed_archives_dir / archive_path.name

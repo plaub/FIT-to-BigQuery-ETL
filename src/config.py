@@ -18,6 +18,7 @@ BIGQUERY_PROJECT_ID = os.getenv('BIGQUERY_PROJECT_ID')
 BIGQUERY_DATASET = os.getenv('BIGQUERY_DATASET', 'fitness_data')
 SESSIONS_TABLE = 'sessions'
 DETAILS_TABLE = 'details'
+METRICS_TABLE = 'metrics'
 
 # Directory Configuration
 INPUT_DIR = PROJECT_ROOT / os.getenv('INPUT_DIR', 'files')
@@ -94,6 +95,26 @@ DETAILS_SCHEMA = [
     {"name": "calories", "type": "INTEGER", "mode": "NULLABLE"},
     {"name": "battery_soc", "type": "FLOAT", "mode": "NULLABLE"},
 ]
+
+METRICS_SCHEMA = [
+    {"name": "file_hash", "type": "STRING", "mode": "REQUIRED"},
+    {"name": "filename", "type": "STRING", "mode": "REQUIRED"},
+    {"name": "timestamp", "type": "TIMESTAMP", "mode": "REQUIRED"},
+    {"name": "body_battery_min", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "body_battery_max", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "body_battery_avg", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "pulse", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "sleep_hours", "type": "FLOAT", "mode": "NULLABLE"},
+    {"name": "stress_level_max", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "stress_level_avg", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "time_awake", "type": "FLOAT", "mode": "NULLABLE"},
+    {"name": "time_in_deep_sleep", "type": "FLOAT", "mode": "NULLABLE"},
+    {"name": "time_in_light_sleep", "type": "FLOAT", "mode": "NULLABLE"},
+    {"name": "time_in_rem_sleep", "type": "FLOAT", "mode": "NULLABLE"},
+    {"name": "weight_kilograms", "type": "FLOAT", "mode": "NULLABLE"},
+    {"name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED"},
+]
+
 
 
 def validate_config():

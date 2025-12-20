@@ -10,12 +10,13 @@ from pathlib import Path
 
 from src.config import (
     INPUT_DIR, PROCESSED_DIR, FAILED_DIR, LOG_DIR, LOG_LEVEL,
-    BIGQUERY_PROJECT_ID, BIGQUERY_DATASET, SESSIONS_TABLE, DETAILS_TABLE,
-    SESSIONS_SCHEMA, DETAILS_SCHEMA, BATCH_SIZE, validate_config
+    BIGQUERY_PROJECT_ID, BIGQUERY_DATASET, SESSIONS_TABLE, DETAILS_TABLE, METRICS_TABLE,
+    SESSIONS_SCHEMA, DETAILS_SCHEMA, METRICS_SCHEMA, BATCH_SIZE, validate_config
 )
 from src.bigquery_client import BigQueryClient
 from src.hash_manager import find_unprocessed_files
 from src.fit_parser import parse_fit_file
+from src.csv_parser import parse_metrics_csv, is_metrics_csv
 from src.archive_extractor import extract_archives
 
 
@@ -76,6 +77,14 @@ def initialize_bigquery(logger):
         clustering_fields=['session_id', 'file_hash']
     )
     
+    # Ensure metrics table exists with partitioning
+    logger.info("Setting up metrics table...")
+    bq_client.ensure_table_exists(
+        METRICS_TABLE,
+        METRICS_SCHEMA,
+        partition_field='timestamp'
+    )
+    
     logger.info("[OK] BigQuery setup complete - dataset and tables ready")
     return bq_client
 
@@ -103,23 +112,49 @@ def process_file(file_path: Path, file_hash: str, bq_client: BigQueryClient, log
         return False
     
     try:
-        # Step 1: Parse FIT file
-        logger.info("Parsing FIT file...")
-        session_data, records_data = parse_fit_file(file_path, file_hash)
-        
-        if not records_data:
-            logger.warning(f"No records found in {file_path.name}, skipping")
+        if file_path.suffix.lower() == '.fit':
+            # Step 1: Parse FIT file
+            logger.info("Parsing FIT file...")
+            session_data, records_data = parse_fit_file(file_path, file_hash)
+            
+            if not records_data:
+                logger.warning(f"No records found in {file_path.name}, skipping")
+                return False
+            
+            # Step 2: Upload to BigQuery
+            logger.info("Uploading to BigQuery...")
+            bq_client.upload_session_and_records(
+                session_data,
+                records_data,
+                SESSIONS_TABLE,
+                DETAILS_TABLE,
+                BATCH_SIZE
+            )
+        elif file_path.suffix.lower() == '.csv':
+            # Step 0: Validate CSV type
+            if not is_metrics_csv(file_path):
+                logger.warning(f"CSV file {file_path.name} does not match expected metrics format (missing headers), skipping")
+                return False
+
+            # Step 1: Parse CSV file
+            logger.info("Parsing CSV file...")
+            allowed_fields = {field['name'] for field in METRICS_SCHEMA}
+            metrics_data = parse_metrics_csv(file_path, file_hash, allowed_fields=allowed_fields)
+            
+            if not metrics_data:
+                logger.warning(f"No metrics found in {file_path.name}, skipping")
+                return False
+            
+            # Step 2: Upload to BigQuery
+            logger.info("Uploading to BigQuery...")
+            bq_client.insert_rows_batch(
+                METRICS_TABLE,
+                metrics_data,
+                BATCH_SIZE
+            )
+        else:
+            logger.warning(f"Unsupported file type: {file_path.suffix}")
             return False
-        
-        # Step 2: Upload to BigQuery
-        logger.info("Uploading to BigQuery...")
-        bq_client.upload_session_and_records(
-            session_data,
-            records_data,
-            SESSIONS_TABLE,
-            DETAILS_TABLE,
-            BATCH_SIZE
-        )
         
         logger.info(f"[OK] Successfully processed {file_path.name}")
         return True
