@@ -17,6 +17,7 @@ from src.bigquery_client import BigQueryClient
 from src.hash_manager import find_unprocessed_files
 from src.fit_parser import parse_fit_file
 from src.csv_parser import parse_metrics_csv, is_metrics_csv
+from src.excel_parser import parse_metrics_xlsx, is_metrics_xlsx
 from src.archive_extractor import extract_archives
 
 
@@ -140,6 +141,27 @@ def process_file(file_path: Path, file_hash: str, bq_client: BigQueryClient, log
             logger.info("Parsing CSV file...")
             allowed_fields = {field['name'] for field in METRICS_SCHEMA}
             metrics_data = parse_metrics_csv(file_path, file_hash, allowed_fields=allowed_fields)
+            
+            if not metrics_data:
+                logger.warning(f"No metrics found in {file_path.name}, skipping")
+                return False
+            
+            # Step 2: Upload to BigQuery
+            logger.info("Uploading to BigQuery...")
+            bq_client.insert_rows_batch(
+                METRICS_TABLE,
+                metrics_data,
+                BATCH_SIZE
+            )
+        elif file_path.suffix.lower() == '.xlsx':
+            # Step 0: Validate Excel type
+            if not is_metrics_xlsx(file_path):
+                logger.warning(f"Excel file {file_path.name} does not match expected metrics format, skipping")
+                return False
+
+            # Step 1: Parse Excel file
+            logger.info("Parsing Excel file...")
+            metrics_data = parse_metrics_xlsx(file_path, file_hash)
             
             if not metrics_data:
                 logger.warning(f"No metrics found in {file_path.name}, skipping")

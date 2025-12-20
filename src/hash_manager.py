@@ -94,7 +94,7 @@ def find_unprocessed_files(input_dir: Path, bigquery_client) -> List[tuple]:
     logger.info(f"Scanning for files in {input_dir}")
     
     # Get all FIT and CSV files
-    extensions = ["*.fit", "*.FIT", "*.csv", "*.CSV"]
+    extensions = ["*.fit", "*.FIT", "*.csv", "*.CSV", "*.xlsx", "*.XLSX"]
     all_files = []
     for ext in extensions:
         all_files.extend(input_dir.rglob(ext))

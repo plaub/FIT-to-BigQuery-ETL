@@ -75,8 +75,26 @@ class BigQueryClient:
         table_ref = self.dataset_ref.table(table_id)
         
         try:
-            self.client.get_table(table_ref)
-            logger.info(f"Table {table_id} exists")
+            table = self.client.get_table(table_ref)
+            logger.info(f"Table {table_id} exists. Checking for missing fields...")
+            
+            # Check for current fields and add missing ones
+            current_fields = {f.name for f in table.schema}
+            new_fields = []
+            for field in schema:
+                if field['name'] not in current_fields:
+                    new_fields.append(bigquery.SchemaField(
+                        field['name'], field['type'], mode=field.get('mode', 'NULLABLE')
+                    ))
+            
+            if new_fields:
+                logger.info(f"Updating table {table_id} with {len(new_fields)} new fields: {[f.name for f in new_fields]}")
+                updated_schema = list(table.schema) + new_fields
+                table.schema = updated_schema
+                self.client.update_table(table, ["schema"])
+                logger.info(f"Successfully updated schema for {table_id}")
+            else:
+                logger.info(f"No schema changes needed for {table_id}")
             return
         except NotFound:
             pass

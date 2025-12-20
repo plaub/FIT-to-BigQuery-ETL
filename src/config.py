@@ -112,6 +112,11 @@ METRICS_SCHEMA = [
     {"name": "time_in_light_sleep", "type": "FLOAT", "mode": "NULLABLE"},
     {"name": "time_in_rem_sleep", "type": "FLOAT", "mode": "NULLABLE"},
     {"name": "weight_kilograms", "type": "FLOAT", "mode": "NULLABLE"},
+    {"name": "resting_heart_rate", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "max_heart_rate", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "min_heart_rate", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "avg_heart_rate", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "hrv_avg", "type": "FLOAT", "mode": "NULLABLE"},
     {"name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED"},
 ]
 
