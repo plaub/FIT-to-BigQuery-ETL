@@ -35,7 +35,7 @@ python -m venv venv
 3. **Dependencies installieren**
 
 ```powershell
-pip install --user -r requirements.txt
+pip install -r requirements.txt
 ```
 
 4. **Konfiguration einrichten**
