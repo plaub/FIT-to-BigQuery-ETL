@@ -18,6 +18,7 @@ from src.hash_manager import find_unprocessed_files
 from src.fit_parser import parse_fit_file
 from src.csv_parser import parse_metrics_csv, is_metrics_csv
 from src.excel_parser import parse_metrics_xlsx, is_metrics_xlsx
+from src.json_parser import parse_metrics_json, is_metrics_json
 from src.archive_extractor import extract_archives
 from src.map_generator import generate_route_maps_base64
 
@@ -40,6 +41,58 @@ def setup_logging():
     logger.info("FIT to BigQuery ETL Pipeline Started")
     logger.info("=" * 80)
     return logger
+
+
+def filter_existing_metrics(metrics_data: list, bq_client: BigQueryClient, logger) -> list:
+    """
+    Filter out metric records that have timestamps already present in the metrics table.
+    """
+    if not metrics_data:
+        return []
+        
+    try:
+        # Get min and max timestamps to limit the query range
+        timestamps = [m['timestamp'] for m in metrics_data]
+        min_ts = min(timestamps)
+        max_ts = max(timestamps)
+        
+        # Format timestamps for BigQuery
+        min_ts_str = min_ts.strftime('%Y-%m-%d %H:%M:%S') if hasattr(min_ts, 'strftime') else str(min_ts)
+        max_ts_str = max_ts.strftime('%Y-%m-%d %H:%M:%S') if hasattr(max_ts, 'strftime') else str(max_ts)
+        
+        query = f"""
+            SELECT DISTINCT timestamp 
+            FROM `{bq_client.project}.{bq_client.dataset_id}.{METRICS_TABLE}`
+            WHERE timestamp >= '{min_ts_str}' AND timestamp <= '{max_ts_str}'
+        """
+        
+        results = bq_client.query(query).result()
+        
+        # BigQuery returns tz-aware datetimes (UTC), we convert to naive
+        existing_timestamps = set()
+        for row in results:
+            if hasattr(row.timestamp, 'replace'):
+                existing_timestamps.add(row.timestamp.replace(tzinfo=None))
+            else:
+                existing_timestamps.add(row.timestamp)
+                
+        # Filter new metrics
+        new_metrics = []
+        for m in metrics_data:
+            ts = m['timestamp']
+            if ts not in existing_timestamps:
+                new_metrics.append(m)
+                
+        duplicate_count = len(metrics_data) - len(new_metrics)
+        if duplicate_count > 0:
+            logger.info(f"Filtered out {duplicate_count} duplicate metrics records (timestamp already exists).")
+            
+        return new_metrics
+    except Exception as e:
+        if "Not found: Table" in str(e):
+            return metrics_data
+        logger.warning(f"Failed to check existing metrics: {e}")
+        return metrics_data
 
 
 def initialize_bigquery(logger):
@@ -152,6 +205,12 @@ def process_file(file_path: Path, file_hash: str, bq_client: BigQueryClient, log
             if not metrics_data:
                 logger.warning(f"No metrics found in {file_path.name}, skipping")
                 return False
+                
+            # Deduplicate items before inserting
+            metrics_data = filter_existing_metrics(metrics_data, bq_client, logger)
+            if not metrics_data:
+                logger.warning(f"All metrics from {file_path.name} are already in BigQuery. Skipping upload.")
+                return True
             
             # Step 2: Upload to BigQuery
             logger.info("Uploading to BigQuery...")
@@ -173,6 +232,40 @@ def process_file(file_path: Path, file_hash: str, bq_client: BigQueryClient, log
             if not metrics_data:
                 logger.warning(f"No metrics found in {file_path.name}, skipping")
                 return False
+                
+            # Deduplicate items before inserting
+            metrics_data = filter_existing_metrics(metrics_data, bq_client, logger)
+            if not metrics_data:
+                logger.warning(f"All metrics from {file_path.name} are already in BigQuery. Skipping upload.")
+                return True
+            
+            # Step 2: Upload to BigQuery
+            logger.info("Uploading to BigQuery...")
+            bq_client.insert_rows_batch(
+                METRICS_TABLE,
+                metrics_data,
+                BATCH_SIZE
+            )
+        elif file_path.suffix.lower() == '.json':
+            # Step 0: Validate JSON type
+            if not is_metrics_json(file_path):
+                logger.warning(f"JSON file {file_path.name} does not match expected metrics format, skipping")
+                return False
+
+            # Step 1: Parse JSON file
+            logger.info("Parsing JSON file...")
+            allowed_fields = {field['name'] for field in METRICS_SCHEMA}
+            metrics_data = parse_metrics_json(file_path, file_hash, allowed_fields=allowed_fields)
+            
+            if not metrics_data:
+                logger.warning(f"No metrics found in {file_path.name}, skipping")
+                return False
+                
+            # Deduplicate items before inserting
+            metrics_data = filter_existing_metrics(metrics_data, bq_client, logger)
+            if not metrics_data:
+                logger.warning(f"All metrics from {file_path.name} are already in BigQuery. Skipping upload.")
+                return True # Consider successful processing since no failed operation
             
             # Step 2: Upload to BigQuery
             logger.info("Uploading to BigQuery...")
