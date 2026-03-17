@@ -19,6 +19,7 @@ from src.fit_parser import parse_fit_file
 from src.csv_parser import parse_metrics_csv, is_metrics_csv
 from src.excel_parser import parse_metrics_xlsx, is_metrics_xlsx
 from src.archive_extractor import extract_archives
+from src.map_generator import generate_route_maps_base64
 
 
 def setup_logging():
@@ -121,6 +122,12 @@ def process_file(file_path: Path, file_hash: str, bq_client: BigQueryClient, log
             if not records_data:
                 logger.warning(f"No records found in {file_path.name}, skipping")
                 return False
+                
+            # Step 1.5: Generate Map Images
+            logger.info("Generating map images...")
+            mini_base64, large_base64 = generate_route_maps_base64(records_data)
+            session_data['map_mini_preview_base64'] = mini_base64
+            session_data['map_large_base64'] = large_base64
             
             # Step 2: Upload to BigQuery
             logger.info("Uploading to BigQuery...")

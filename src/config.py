@@ -71,6 +71,8 @@ SESSIONS_SCHEMA = [
     {"name": "training_stress_score", "type": "FLOAT", "mode": "NULLABLE"},
     {"name": "intensity_factor", "type": "FLOAT", "mode": "NULLABLE"},
     {"name": "num_laps", "type": "INTEGER", "mode": "NULLABLE"},
+    {"name": "map_mini_preview_base64", "type": "STRING", "mode": "NULLABLE"},
+    {"name": "map_large_base64", "type": "STRING", "mode": "NULLABLE"},
     {"name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED"},
 ]
 
